@@ -1,0 +1,11 @@
+---
+description: List the last N substantive assistant responses in this session as a table (default 10)
+argument-hint: "[n]"
+disable-model-invocation: true
+allowed-tools: Bash(python3 __HELPER_PATH__ *)
+shell: bash
+---
+
+!`python3 __HELPER_PATH__ ls "${CLAUDE_SESSION_ID}" "$ARGUMENTS"`
+
+Report the output above verbatim. Add nothing else.

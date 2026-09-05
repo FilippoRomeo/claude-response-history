@@ -1,0 +1,11 @@
+---
+description: Copy one or more responses listed by /ls-responses to the clipboard
+argument-hint: "[n | n1,n2,n3]"
+disable-model-invocation: true
+allowed-tools: Bash(python3 __HELPER_PATH__ *)
+shell: bash
+---
+
+!`python3 __HELPER_PATH__ copy "${CLAUDE_SESSION_ID}" "$ARGUMENTS"`
+
+Report the line above verbatim. Add nothing else.
