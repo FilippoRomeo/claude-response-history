@@ -1,6 +1,6 @@
 ---
-description: Copy one or more responses listed by /ls-responses to the clipboard
-argument-hint: "[n | n1,n2,n3]"
+description: Copy assistant responses to the clipboard by relative count, number, list, or range
+argument-hint: "[-1..-10 | n | n1,n2,n3 | n1-n2]"
 disable-model-invocation: true
 allowed-tools: Bash(python3 __HELPER_PATH__ *)
 shell: bash
