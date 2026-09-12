@@ -7,8 +7,6 @@ import sys
 from pathlib import Path
 
 HIDDEN_COMMANDS = {"ls-responses", "copy-responses", "copy"}
-GATE_VERSION = 1
-GATE_KEEP = 100
 
 
 def content_text(record):
@@ -290,73 +288,6 @@ def table_preview(text):
     )
 
 
-def gate_path(session_id):
-    return (
-        Path.home()
-        / ".claude"
-        / "state"
-        / f"ls-{session_id}"
-    )
-
-
-def arm_gate(session_id, response_count):
-    marker = gate_path(session_id)
-
-    marker.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    data = {
-        "version": GATE_VERSION,
-        "session_id": session_id,
-        "response_count_at_list": response_count,
-    }
-
-    marker.write_text(
-        json.dumps(
-            data,
-            separators=(",", ":"),
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-    markers = sorted(
-        marker.parent.glob("ls-*"),
-        key=lambda path: path.stat().st_mtime,
-        reverse=True,
-    )
-
-    for stale in markers[GATE_KEEP:]:
-        try:
-            stale.unlink()
-        except FileNotFoundError:
-            pass
-
-
-def gate_is_armed(session_id):
-    marker = gate_path(session_id)
-
-    try:
-        data = json.loads(
-            marker.read_text(
-                encoding="utf-8",
-            )
-        )
-    except (
-        FileNotFoundError,
-        json.JSONDecodeError,
-        OSError,
-    ):
-        return False
-
-    return (
-        data.get("version") == GATE_VERSION
-        and data.get("session_id") == session_id
-    )
-
-
 def run_list(session_id, raw):
     transcript = find_transcript(session_id)
 
@@ -378,9 +309,7 @@ def run_list(session_id, raw):
     responses = filtered_responses(records)
 
     if not responses:
-        print(
-            "no assistant responses yet — gate not armed"
-        )
+        print("no assistant responses yet")
         return 0
 
     start = max(
@@ -404,33 +333,20 @@ def run_list(session_id, raw):
 
     print("\n".join(lines))
 
-    arm_gate(
-        session_id,
-        len(responses),
-    )
-
     return 0
 
 
 def run_copy(session_id, raw):
-    if not gate_is_armed(session_id):
-        print(
-            "not armed — run /ls-responses first, "
-            "then /copy-responses [selection]"
-        )
-        return 0
-
     transcript = find_transcript(session_id)
 
     if transcript is None:
         print(
-            "transcript not ready — "
-            "run /ls-responses again"
+            "transcript not ready — send one normal message, "
+            "then run /copy-responses again"
         )
         return 0
 
     records = load_records(transcript)
-
     responses = filtered_responses(records)
 
     try:
