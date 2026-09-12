@@ -1,6 +1,6 @@
 # Claude Response History
 
-A small macOS helper for Claude Code that provides stable, oldest-first assistant-response numbering and lets you copy previously listed responses by number.
+A small macOS helper for Claude Code that provides stable, oldest-first assistant-response numbering and lets you copy previous responses by relative count, number, list, or range.
 
 ## Commands
 
@@ -17,18 +17,38 @@ The default is 10.
 
 Responses use oldest-first numbering within the filtered session history, so later responses append instead of shifting earlier numbers.
 
-### `/copy-responses n[,n...]`
+### `/copy-responses [selection]`
 
-Copies one or more responses using the numbers shown by `/ls-responses`.
+Copies assistant responses from the current session. You must successfully run `/ls-responses` first in that session.
+
+Supported forms:
 
 ```text
-/copy-responses 3
-/copy-responses 3,7,12
+/copy-responses
+/copy-responses -1
+/copy-responses -2
+/copy-responses -3
+/copy-responses -4
+/copy-responses -10
+/copy-responses 10
+/copy-responses 2,3,4
+/copy-responses 2-4
 ```
 
-Multiple responses are copied in the requested order and separated by a blank line.
+Semantics:
 
-You must successfully run `/ls-responses` first in the current session. Invalid, zero, negative, malformed, and out-of-range selections are rejected.
+- no argument: copy the last response
+- `-1`: copy the last response
+- `-2` through `-10`: copy the last 2 through 10 responses, oldest to newest
+- negative relative counts above 10 are rejected
+- positive `N`: copy absolute response `#N` from `/ls-responses` numbering
+- `n1,n2,n3`: copy those absolute responses in the requested order
+- `n1-n2`: copy the inclusive absolute range from `n1` through `n2`
+- absolute numbers may optionally start with `#`
+
+If fewer responses exist than a requested relative count, all available responses are copied. Absolute selections that are malformed, reversed, zero, or out of range are rejected.
+
+Multiple responses are separated by a blank line.
 
 ## Native Claude Code `/copy`
 
@@ -40,7 +60,7 @@ This project does not replace Claude Code's built-in `/copy`.
 
 Claude Code's native `/copy` uses relative Nth-latest semantics.
 
-This project uses a separate `/copy-responses` command with the stable oldest-first numbering displayed by `/ls-responses`.
+This project uses a separate `/copy-responses` command with stable oldest-first numbering plus explicit relative-count syntax using negative numbers.
 
 ## Requirements
 
@@ -82,16 +102,12 @@ Start Claude Code:
 claude
 ```
 
-Send one normal message:
-
-```text
-hello
-```
+Send several normal messages so there are multiple assistant responses.
 
 Before listing history:
 
 ```text
-/copy-responses 1
+/copy-responses
 ```
 
 should report that copying is not armed.
@@ -102,13 +118,18 @@ Then run:
 /ls-responses 10
 ```
 
-followed by:
+Useful checks:
 
 ```text
-/copy-responses 1
+/copy-responses
+/copy-responses -1
+/copy-responses -3
+/copy-responses 2
+/copy-responses 2,3,4
+/copy-responses 2-4
 ```
 
-The full selected response should be copied to the macOS clipboard.
+The selected full response text should be copied to the macOS clipboard.
 
 ## How it works
 
