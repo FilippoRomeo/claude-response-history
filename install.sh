@@ -5,11 +5,11 @@ ROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 
 CONFIG="$HOME/.claude"
 BIN_DIR="$CONFIG/response-tools/bin"
-COMMAND_DIR="$CONFIG/commands"
+SKILL_DIR="$CONFIG/skills"
 
 HELPER="$BIN_DIR/response_history.py"
-LS_COMMAND="$COMMAND_DIR/ls-responses.md"
-COPY_COMMAND="$COMMAND_DIR/copy-responses.md"
+LS_SKILL="$SKILL_DIR/ls-responses/SKILL.md"
+COPY_SKILL="$SKILL_DIR/copy-responses/SKILL.md"
 
 command -v python3 >/dev/null 2>&1 || {
     echo "ERROR: python3 is required"
@@ -21,7 +21,7 @@ command -v pbcopy >/dev/null 2>&1 || {
     exit 1
 }
 
-for path in "$HELPER" "$LS_COMMAND" "$COPY_COMMAND"; do
+for path in "$HELPER" "$LS_SKILL" "$COPY_SKILL"; do
     if [ -e "$path" ]; then
         echo "ERROR: refusing to overwrite existing file:"
         echo "  $path"
@@ -31,15 +31,18 @@ for path in "$HELPER" "$LS_COMMAND" "$COPY_COMMAND"; do
     fi
 done
 
-mkdir -p "$BIN_DIR" "$COMMAND_DIR"
+mkdir -p \
+    "$BIN_DIR" \
+    "$SKILL_DIR/ls-responses" \
+    "$SKILL_DIR/copy-responses"
 
 install -m 755 \
     "$ROOT/bin/response_history.py" \
     "$HELPER"
 
 python3 - \
-    "$ROOT/commands/ls-responses.md.template" \
-    "$LS_COMMAND" \
+    "$ROOT/skills/ls-responses/SKILL.md.template" \
+    "$LS_SKILL" \
     "$HELPER" <<'PY'
 from pathlib import Path
 import sys
@@ -53,7 +56,7 @@ text = src.read_text(encoding="utf-8")
 if text.count("__HELPER_PATH__") != 2:
     raise SystemExit(
         "ERROR: unexpected __HELPER_PATH__ count "
-        "in ls-responses template"
+        "in ls-responses skill template"
     )
 
 dst.write_text(
@@ -63,8 +66,8 @@ dst.write_text(
 PY
 
 python3 - \
-    "$ROOT/commands/copy-responses.md.template" \
-    "$COPY_COMMAND" \
+    "$ROOT/skills/copy-responses/SKILL.md.template" \
+    "$COPY_SKILL" \
     "$HELPER" <<'PY'
 from pathlib import Path
 import sys
@@ -78,7 +81,7 @@ text = src.read_text(encoding="utf-8")
 if text.count("__HELPER_PATH__") != 2:
     raise SystemExit(
         "ERROR: unexpected __HELPER_PATH__ count "
-        "in copy-responses template"
+        "in copy-responses skill template"
     )
 
 dst.write_text(
@@ -88,14 +91,12 @@ dst.write_text(
 PY
 
 python3 -m py_compile "$HELPER"
-
 python3 "$HELPER" self-test
 
 echo
 echo "Installed:"
 echo "  $HELPER"
-echo "  $LS_COMMAND"
-echo "  $COPY_COMMAND"
+echo "  $LS_SKILL"
+echo "  $COPY_SKILL"
 echo
-echo "Start a new Claude Code session, then run:"
-echo "  /ls-responses 10"
+echo "Start a new Claude Code session."
