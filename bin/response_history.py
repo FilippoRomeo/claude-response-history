@@ -7,8 +7,6 @@ import sys
 from pathlib import Path
 
 HIDDEN_COMMANDS = {"ls-responses", "copy-responses", "copy"}
-GATE_VERSION = 1
-GATE_KEEP = 100
 
 
 def content_text(record):
@@ -205,33 +203,77 @@ def parse_selection(raw, count):
     if raw == "":
         return [count]
 
+    relative_match = re.fullmatch(r"-([1-9]|10)", raw)
+
+    if relative_match:
+        requested = int(relative_match.group(1))
+        start = max(1, count - requested + 1)
+        return list(range(start, count + 1))
+
+    if raw.startswith("-"):
+        raise ValueError(
+            "invalid relative selection — use -1 through -10"
+        )
+
+    token_pattern = (
+        r"#?[1-9][0-9]*"
+        r"(?:\s*-\s*#?[1-9][0-9]*)?"
+    )
+
     if not re.fullmatch(
-        r"#?[1-9][0-9]*(?:\s*,\s*#?[1-9][0-9]*)*",
+        rf"{token_pattern}(?:\s*,\s*{token_pattern})*",
         raw,
     ):
         raise ValueError(
             "invalid selection — use /copy-responses "
-            "n[,n...] (numbers may optionally start with #)"
+            "[-1..-10 | n | n1,n2 | n1-n2] "
+            "(absolute numbers may optionally start with #)"
         )
 
-    indices = [
-        int(part.strip().lstrip("#"))
-        for part in raw.split(",")
-    ]
+    indices = []
 
-    bad = [
-        index
-        for index in indices
-        if index > count
-    ]
+    for part in raw.split(","):
+        part = part.strip()
 
-    if bad:
-        values = ",".join(str(index) for index in bad)
+        if "-" not in part:
+            index = int(part.lstrip("#"))
 
-        raise ValueError(
-            f"nothing copied — out-of-range response(s): "
-            f"{values} (session has {count})"
+            if index > count:
+                raise ValueError(
+                    f"nothing copied — out-of-range response: "
+                    f"{index} (session has {count})"
+                )
+
+            indices.append(index)
+            continue
+
+        start_raw, end_raw = re.split(
+            r"\s*-\s*",
+            part,
+            maxsplit=1,
         )
+        start = int(start_raw.lstrip("#"))
+        end = int(end_raw.lstrip("#"))
+
+        if end < start:
+            raise ValueError(
+                "invalid range — range start must be <= range end"
+            )
+
+        bad = [
+            value
+            for value in (start, end)
+            if value > count
+        ]
+
+        if bad:
+            values = ",".join(str(value) for value in bad)
+            raise ValueError(
+                f"nothing copied — out-of-range response(s): "
+                f"{values} (session has {count})"
+            )
+
+        indices.extend(range(start, end + 1))
 
     return indices
 
@@ -243,73 +285,6 @@ def table_preview(text):
         first
         .replace("\t", r"\t")
         .replace("|", r"\|")
-    )
-
-
-def gate_path(session_id):
-    return (
-        Path.home()
-        / ".claude"
-        / "state"
-        / f"ls-{session_id}"
-    )
-
-
-def arm_gate(session_id, response_count):
-    marker = gate_path(session_id)
-
-    marker.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    data = {
-        "version": GATE_VERSION,
-        "session_id": session_id,
-        "response_count_at_list": response_count,
-    }
-
-    marker.write_text(
-        json.dumps(
-            data,
-            separators=(",", ":"),
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-    markers = sorted(
-        marker.parent.glob("ls-*"),
-        key=lambda path: path.stat().st_mtime,
-        reverse=True,
-    )
-
-    for stale in markers[GATE_KEEP:]:
-        try:
-            stale.unlink()
-        except FileNotFoundError:
-            pass
-
-
-def gate_is_armed(session_id):
-    marker = gate_path(session_id)
-
-    try:
-        data = json.loads(
-            marker.read_text(
-                encoding="utf-8",
-            )
-        )
-    except (
-        FileNotFoundError,
-        json.JSONDecodeError,
-        OSError,
-    ):
-        return False
-
-    return (
-        data.get("version") == GATE_VERSION
-        and data.get("session_id") == session_id
     )
 
 
@@ -334,9 +309,7 @@ def run_list(session_id, raw):
     responses = filtered_responses(records)
 
     if not responses:
-        print(
-            "no assistant responses yet — gate not armed"
-        )
+        print("no assistant responses yet")
         return 0
 
     start = max(
@@ -360,33 +333,20 @@ def run_list(session_id, raw):
 
     print("\n".join(lines))
 
-    arm_gate(
-        session_id,
-        len(responses),
-    )
-
     return 0
 
 
 def run_copy(session_id, raw):
-    if not gate_is_armed(session_id):
-        print(
-            "not armed — run /ls-responses first, "
-            "then /copy-responses [n,...]"
-        )
-        return 0
-
     transcript = find_transcript(session_id)
 
     if transcript is None:
         print(
-            "transcript not ready — "
-            "run /ls-responses again"
+            "transcript not ready — send one normal message, "
+            "then run /copy-responses again"
         )
         return 0
 
     records = load_records(transcript)
-
     responses = filtered_responses(records)
 
     try:
@@ -580,8 +540,17 @@ def self_test():
                 f"parse_count accepted {value!r}"
             )
 
-    assert parse_selection("", 2) == [2]
-    assert parse_selection("1", 2) == [1]
+    assert parse_selection("", 12) == [12]
+    assert parse_selection("-1", 12) == [12]
+    assert parse_selection("-2", 12) == [11, 12]
+    assert parse_selection("-3", 12) == [10, 11, 12]
+    assert parse_selection("-4", 12) == [9, 10, 11, 12]
+    assert parse_selection("-10", 12) == [3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+    assert parse_selection("-10", 3) == [1, 2, 3]
+    assert parse_selection("10", 12) == [10]
+    assert parse_selection("2,3,4", 12) == [2, 3, 4]
+    assert parse_selection("2-4", 12) == [2, 3, 4]
+    assert parse_selection("#2-#4", 12) == [2, 3, 4]
     assert parse_selection("#1, 2", 2) == [1, 2]
 
     for value in (
@@ -589,11 +558,15 @@ def self_test():
         "banana",
         "1x",
         "1,999",
+        "-0",
+        "-11",
+        "4-2",
+        "2-",
     ):
         try:
             parse_selection(
                 value,
-                2,
+                12,
             )
         except ValueError:
             pass
