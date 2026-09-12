@@ -6,7 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-HIDDEN_COMMANDS = {"ls-responses", "copy-responses", "copy"}
+HIDDEN_COMMANDS = {"ls-responses", "copy-responses", "copy-response", "copy"}
 
 
 def content_text(record):
@@ -89,6 +89,31 @@ def assistant_response(record):
     return None
 
 
+def is_tool_result_user(record):
+    if record.get("type") != "user":
+        return False
+
+    message = record.get("message") or {}
+    content = message.get("content")
+
+    if not isinstance(content, list):
+        return False
+
+    return any(
+        isinstance(item, dict)
+        and item.get("type") == "tool_result"
+        for item in content
+    )
+
+
+def is_user_turn(record):
+    return (
+        record.get("type") == "user"
+        and not bool(record.get("isMeta", False))
+        and not is_tool_result_user(record)
+    )
+
+
 def load_records(path):
     records = []
 
@@ -136,10 +161,7 @@ def find_transcript(session_id):
 
 def latest_invocation_args(records, wanted):
     for record in reversed(records):
-        if (
-            record.get("type") != "user"
-            or bool(record.get("isMeta", False))
-        ):
+        if not is_user_turn(record):
             continue
 
         text = content_text(record)
@@ -154,26 +176,33 @@ def latest_invocation_args(records, wanted):
 
 def filtered_responses(records):
     responses = []
-    suppress = False
+    parts = []
+    suppress = True
+
+    def flush():
+        nonlocal parts
+
+        if parts and not suppress:
+            responses.append("\n\n".join(parts))
+
+        parts = []
 
     for record in records:
-        record_type = record.get("type")
-
-        if (
-            record_type == "user"
-            and not bool(record.get("isMeta", False))
-        ):
+        if is_user_turn(record):
+            flush()
             suppress = (
                 command_name(content_text(record))
                 in HIDDEN_COMMANDS
             )
             continue
 
-        if record_type == "assistant" and not suppress:
+        if record.get("type") == "assistant" and not suppress:
             response = assistant_response(record)
 
             if response is not None:
-                responses.append(response)
+                parts.append(response)
+
+    flush()
 
     return responses
 
@@ -472,8 +501,52 @@ def self_test():
                 "content": [
                     {
                         "type": "text",
-                        "text":
-                            "Second\tvalue | emoji 😀",
+                        "text": "Checking dependencies.",
+                    },
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_1",
+                        "name": "Bash",
+                        "input": {},
+                    },
+                ]
+            },
+        },
+        {
+            "type": "user",
+            "isMeta": False,
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "toolu_1",
+                        "content": "done",
+                    },
+                    {
+                        "type": "text",
+                        "text": "<system-reminder>tool finished</system-reminder>",
+                    },
+                ]
+            },
+        },
+        {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Build passes.",
+                    },
+                ]
+            },
+        },
+        {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Final report.",
                     },
                 ]
             },
@@ -507,9 +580,12 @@ def self_test():
         },
     ]
 
+    assert is_tool_result_user(records[7])
+    assert not is_user_turn(records[7])
+
     assert filtered_responses(records) == [
         "Hello",
-        "Second\tvalue | emoji 😀",
+        "Checking dependencies.\n\nBuild passes.\n\nFinal report.",
     ]
 
     assert latest_invocation_args(

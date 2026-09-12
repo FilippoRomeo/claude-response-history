@@ -1,27 +1,10 @@
 # Claude Response History
 
-A small macOS helper for Claude Code that provides stable, oldest-first assistant-response numbering and lets you copy previous responses by relative count, number, list, or range.
+A small macOS helper for Claude Code that provides one user command, `/copy-responses`, for copying complete assistant responses from the current session.
 
-## Commands
+The helper reconstructs a visible Claude response as one logical turn, including assistant text emitted before and after tool calls. Tool-result transcript records do not split a response into separate numbered entries.
 
-### `/ls-responses [N]`
-
-Lists the last `N` substantive assistant responses from the current Claude Code session.
-
-```text
-/ls-responses
-/ls-responses 25
-```
-
-The default is 10.
-
-Responses use oldest-first numbering within the filtered session history, so later responses append instead of shifting earlier numbers.
-
-### `/copy-responses [selection]`
-
-Copies assistant responses from the current session. You must successfully run `/ls-responses` first in that session.
-
-Supported forms:
+## Command
 
 ```text
 /copy-responses
@@ -37,18 +20,17 @@ Supported forms:
 
 Semantics:
 
-- no argument: copy the last response
-- `-1`: copy the last response
+- no argument: copy the last complete response
+- `-1`: copy the last complete response
 - `-2` through `-10`: copy the last 2 through 10 responses, oldest to newest
-- negative relative counts above 10 are rejected
-- positive `N`: copy absolute response `#N` from `/ls-responses` numbering
+- positive `N`: copy absolute response `#N` from the filtered session history
 - `n1,n2,n3`: copy those absolute responses in the requested order
-- `n1-n2`: copy the inclusive absolute range from `n1` through `n2`
+- `n1-n2`: copy the inclusive absolute range
 - absolute numbers may optionally start with `#`
 
-If fewer responses exist than a requested relative count, all available responses are copied. Absolute selections that are malformed, reversed, zero, or out of range are rejected.
+If fewer responses exist than a requested relative count, all available responses are copied. Malformed, reversed, zero, or out-of-range absolute selections are rejected.
 
-Multiple responses are separated by a blank line.
+Multiple selected responses are separated by a blank line.
 
 ## Native Claude Code `/copy`
 
@@ -58,9 +40,7 @@ This project does not replace Claude Code's built-in `/copy`.
 /copy [N]
 ```
 
-Claude Code's native `/copy` uses relative Nth-latest semantics.
-
-This project uses a separate `/copy-responses` command with stable oldest-first numbering plus explicit relative-count syntax using negative numbers.
+`/copy-responses` exists because one visible Claude response may be represented by multiple transcript records around tool calls. The helper reconstructs those records into one complete assistant turn before copying.
 
 ## Requirements
 
@@ -70,11 +50,7 @@ This project uses a separate `/copy-responses` command with stable oldest-first 
 - `pbcopy`
 - Claude Code's default `~/.claude` user configuration directory
 
-Validated with Claude Code `2.1.261`.
-
 ## Installation
-
-Clone the repository:
 
 ```sh
 git clone https://github.com/FilippoRomeo/claude-response-history.git
@@ -82,11 +58,10 @@ cd claude-response-history
 ./install.sh
 ```
 
-The installer creates:
+The installer creates only:
 
 ```text
 ~/.claude/response-tools/bin/response_history.py
-~/.claude/commands/ls-responses.md
 ~/.claude/commands/copy-responses.md
 ```
 
@@ -96,103 +71,56 @@ Start a new Claude Code session after installation.
 
 ## Quick test
 
-Start Claude Code:
-
-```sh
-claude
-```
-
-Send several normal messages so there are multiple assistant responses.
-
-Before listing history:
+Send a prompt that causes Claude to use tools and produce several visible progress paragraphs plus a final report, then run:
 
 ```text
 /copy-responses
 ```
 
-should report that copying is not armed.
-
-Then run:
-
-```text
-/ls-responses 10
-```
-
-Useful checks:
-
-```text
-/copy-responses
-/copy-responses -1
-/copy-responses -3
-/copy-responses 2
-/copy-responses 2,3,4
-/copy-responses 2-4
-```
-
-The selected full response text should be copied to the macOS clipboard.
+Paste the clipboard somewhere temporary and verify that it contains the entire visible assistant response, including text produced before and after tool calls, not only the final paragraph.
 
 ## How it works
 
-The Python helper reads the local JSONL transcript belonging to the current Claude Code session and extracts substantive assistant text responses.
+The Python helper reads the local JSONL transcript belonging to the current Claude Code session and extracts substantive assistant turns.
 
-The two custom commands pass `${CLAUDE_SESSION_ID}` and `$ARGUMENTS` directly to the helper.
+A visible assistant response can be represented in the JSONL as multiple `assistant` records separated by `user` records containing `tool_result` blocks. Those tool-result records are internal continuation records, not new human prompts. The helper therefore groups assistant text until the next real non-meta user turn.
 
-Outputs generated by `/ls-responses`, `/copy-responses`, and native `/copy` are filtered from the numbered history.
+The command passes `${CLAUDE_SESSION_ID}` and `$ARGUMENTS` directly to the helper.
 
-After a successful `/ls-responses`, a small session-specific gate marker is stored under:
-
-```text
-~/.claude/state/
-```
+Outputs generated by `/copy-responses` and native `/copy` are filtered from the numbered history.
 
 ## Privacy
 
-Everything runs locally.
+Everything runs locally. The helper reads the current local Claude Code transcript and sends selected response text to `pbcopy`.
 
-The helper:
-
-- reads the current local Claude Code transcript
-- writes a small session-specific gate marker
-- sends selected response text to `pbcopy`
-
-It does not require network access and does not modify project files or Claude Code transcript files.
-
-Do not publish your personal:
-
-```text
-~/.claude/projects/
-~/.claude/state/
-```
-
-or transcript `.jsonl` files, debugging evidence, archived checkpoints, settings, or copied conversation content.
+Do not publish personal transcript or Claude state directories.
 
 ## Safety
 
-The custom commands use:
+The command uses:
 
 ```yaml
 disable-model-invocation: true
 ```
 
-This prevents the commands from being invoked autonomously by the model.
-
-It is **not** a filesystem security boundary and does not prevent Claude Code from editing unrelated files. Claude Code permissions remain separate.
+This prevents autonomous invocation by the model. It is not a filesystem security boundary.
 
 ## Compatibility
 
-This implementation uses personal custom commands under:
+This implementation uses a personal custom command under:
 
 ```text
 ~/.claude/commands/
 ```
 
-The helper also depends on Claude Code's local transcript structure. Future Claude Code releases may therefore require parser updates.
+The helper also depends on Claude Code's local transcript structure. Future Claude Code releases may require parser updates.
 
 ## Development test
 
 ```sh
 python3 -m py_compile bin/response_history.py
 python3 bin/response_history.py self-test
+sh -n install.sh
 ```
 
 Expected:
